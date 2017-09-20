@@ -20,7 +20,7 @@
 #include "praktikum.h"
 #include "ssc.h"
 
-#define KEY_BITS 30 /* Groesse der Teilschluessels */
+#define KEY_BITS 26// 30 /* Groesse der Teilschluessels */
 #define KEY_MAX (1<<KEY_BITS)
   /* Wieviele Moeglichkeiten gibt es fuer einen Teilschluessel */
 
@@ -42,7 +42,7 @@
  */
 
 #define NITERATIONS (1<<LOGNITERATIONS)
-#define HASHTABLE_ELEM (1<<(HASH_BITS-LOGNITERATIONS-5))
+#define HASHTABLE_ELEM (1<<(HASH_BITS-LOGNITERATIONS-5)) //2^29
   /* Anzahl der *int*'s, die fuer das Bitarray alloziert werden
    * muessen. Da 32 bits in einem Int enthalten sind, also
    * 2^(... -5)
@@ -71,13 +71,14 @@
 #define GET_BIT(a,b,c) (((a)[b]>>(c))&1)
 /* holt das c-te Bit in Element b des Arrays a */
 
-#define HASH_ELEM(l,r) XXX
+#define HASH_ELEM(l,r) (l & 0x15555555) | ((r & 0xaaaaaaa))//XXX  nimmt die 16 oberen Bits von l und die 16 unteren Bits von r 
+                                                      // und concatet sie = [0..2^32]
 /* Eine Hashfunktion, die ein Element in hashtable indiziert.
  * Der Wert sollte also zwischen 0 und HASHTABLE_ELEM-1 sein.
  * l und r sind die linken bzw. rechten Teilschluessel
  */
 
-#define HASH_BIT(l,r) XXX
+#define HASH_BIT(l,r) ((l & 0x1c) | (r & 0x3))  // XXX   nimm von l Bit 4,3,2 (0x1c) und von r 1,0 (0x3) = 5-Bit [0..31]
 /* Eine Hashfunktion, die eine Bitnummer von 0 bis 31 ergibt */
 
 /* Zugriffe auf hashtable sollten also in etwa so erfolgen:
@@ -137,11 +138,17 @@ void initialize (void)
  */
 void stage_1 (int iteration)
 {
-
+  printf("Beginning stage 1...\n");
   bzero (hashtable, HASHTABLE_ELEM*sizeof (int)); /* Loeschen aller Bits */
-
   /* XXX Aufgabe */
-
+  unsigned long block_size = (KEY_MAX-1) / NITERATIONS;    // iteriere über 2^26 linke Teilschlüssel 
+  for (unsigned long l_key = block_size * iteration; l_key < block_size * (iteration+1); l_key++) {
+    block tmp_cipher;
+    ssc_encrypt(l_key, &plaintext, &tmp_cipher);
+    //printf("Plain: %lu%lu, Cipher: %lu%lu\n", plaintext.left, plaintext.right, tmp_cipher.left, tmp_cipher.right);
+    SET_BIT(hashtable, HASH_ELEM(tmp_cipher.left, tmp_cipher.right), HASH_BIT(tmp_cipher.left, tmp_cipher.right));
+  }
+  printf("End of stage 1.\n");
 }
 
 /* stage_2 (int iteration)
@@ -150,7 +157,18 @@ void stage_1 (int iteration)
  */
 void stage_2 (int iteration)
 {
+  printf("Beginning stage 2...\n");
   /* XXX Aufgabe */
+  unsigned long block_size = (KEY_MAX-1) / NITERATIONS;    // iteriere über 2^26 rechte Teilschlüssel
+  for (unsigned long r_key = block_size * iteration; r_key < block_size * (iteration+1); r_key++) {
+    block tmp_plain;
+    ssc_decrypt(r_key, &ciphertext, &tmp_plain);
+    if (GET_BIT(hashtable, HASH_ELEM(tmp_plain.left, tmp_plain.right), HASH_BIT(tmp_plain.left, tmp_plain.right))) {
+      enter_collision(tmp_plain, r_key);
+      //printf("Cipher: %lu%lu, Plain: %lu%lu\n", ciphertext.left, ciphertext.right, tmp_plain.left, tmp_plain.right);
+    }
+  }
+  printf("End of stage 2.\n");
 }
 
 int coll_compare (const void *left, const void *right)
@@ -168,7 +186,9 @@ int coll_compare (const void *left, const void *right)
  * Sortiert die Liste der Kollisionen */
 void stage_3 (void)
 {
+  printf("Beginning stage 3...\n");
   qsort (collision_tab, ncollisions, sizeof (struct collision), coll_compare);
+  printf("End of stage 3.\n");
 }
 
 static struct collision tmp_collision; /* Hilfsvariable fuer das folgende
@@ -191,7 +211,17 @@ static struct collision tmp_collision; /* Hilfsvariable fuer das folgende
  */
 void stage_4 (void)
 {
+  printf("Beginning stage 4...\n");
   /* XXX Aufgabe */
+  for (unsigned long l_key = 0; l_key < KEY_MAX-1; l_key++) {
+    block tmp_cipher;
+    ssc_encrypt(l_key, &plaintext, &tmp_cipher);
+    //(struct collision *) coll = search_collision(tmp_cipher);
+    if (search_collision(tmp_cipher)) {
+      printf("Schlüssel gefunden: %lu, %d\n", l_key, 0);
+    }
+  }
+  printf("End of stage 4.\n");
 }
 
 int main (void)
